@@ -1,15 +1,19 @@
--- ReplicatedStorage.Modules.StoreUI
+-- StoreUI ModuleScript
+-- Place this in ReplicatedStorage.Modules.StoreUI (or ClientLoader.Components.StoreUI)
+
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
-local guiName = "CustomStoreUI_v1"
+local guiName = "CustomStoreUI_v2"
 
 local StoreUI = {}
 StoreUI.__index = StoreUI
 
 local registered = {}
+local categories = { "All" }
 
+-- Utility to create instances quickly
 local function new(class, props)
     local obj = Instance.new(class)
     if props then
@@ -18,76 +22,7 @@ local function new(class, props)
     return obj
 end
 
-local function createGui()
-    local existing = player:FindFirstChildOfClass("PlayerGui"):FindFirstChild(guiName)
-    if existing then existing:Destroy() end
-
-    local screenGui = new("ScreenGui", {Name = guiName, ResetOnSpawn = false})
-    screenGui.Parent = player:FindFirstChildOfClass("PlayerGui")
-
-    local main = new("Frame", {
-        Name = "Main",
-        Size = UDim2.new(0, 700, 0, 420),
-        Position = UDim2.new(0.5, -350, 0.5, -210),
-        BackgroundColor3 = Color3.fromRGB(30,30,30),
-        AnchorPoint = Vector2.new(0.5,0.5),
-        Parent = screenGui
-    })
-    new("UICorner", {Parent = main, CornerRadius = UDim.new(0,8)})
-
-    local title = new("TextLabel", {
-        Name = "Title",
-        Text = "Feature Store",
-        Size = UDim2.new(1, -20, 0, 40),
-        Position = UDim2.new(0,10,0,10),
-        BackgroundTransparency = 1,
-        TextColor3 = Color3.fromRGB(230,230,230),
-        Font = Enum.Font.GothamBold,
-        TextSize = 20,
-        Parent = main
-    })
-
-    local closeBtn = new("TextButton", {
-        Name = "Close",
-        Text = "X",
-        Size = UDim2.new(0,36,0,28),
-        Position = UDim2.new(1, -46, 0, 8),
-        BackgroundColor3 = Color3.fromRGB(200,60,60),
-        TextColor3 = Color3.fromRGB(255,255,255),
-        Parent = main
-    })
-    new("UICorner", {Parent = closeBtn, CornerRadius = UDim.new(0,6)})
-
-    local scroll = new("ScrollingFrame", {
-        Name = "Scroll",
-        Size = UDim2.new(1, -20, 1, -70),
-        Position = UDim2.new(0,10,0,50),
-        BackgroundTransparency = 1,
-        CanvasSize = UDim2.new(0,0,0,0),
-        ScrollBarThickness = 8,
-        Parent = main
-    })
-    local grid = new("UIGridLayout", {
-        Parent = scroll,
-        CellSize = UDim2.new(0, 220, 0, 100),
-        CellPadding = UDim2.new(0, 12, 0, 12),
-        FillDirectionMaxCells = 3
-    })
-
-    closeBtn.MouseButton1Click:Connect(function()
-        screenGui.Enabled = false
-    end)
-
-    return {
-        ScreenGui = screenGui,
-        Main = main,
-        Scroll = scroll,
-        Grid = grid
-    }
-end
-
-local guiState = nil
-
+-- Persistent state helpers (local only)
 local function saveState(key, value)
     pcall(function()
         player:SetAttribute("StoreUI_" .. key, HttpService:JSONEncode(value))
@@ -103,14 +38,121 @@ local function loadState(key, default)
     return default
 end
 
-local function buildCard(container, def)
+-- Build main GUI
+local function createGui()
+    local existing = player:FindFirstChildOfClass("PlayerGui"):FindFirstChild(guiName)
+    if existing then existing:Destroy() end
+
+    local screenGui = new("ScreenGui", { Name = guiName, ResetOnSpawn = false })
+    screenGui.Parent = player:FindFirstChildOfClass("PlayerGui")
+
+    local main = new("Frame", {
+        Name = "Main",
+        Size = UDim2.new(0, 760, 0, 480),
+        Position = UDim2.new(0.5, -380, 0.5, -240),
+        BackgroundColor3 = Color3.fromRGB(28,28,28),
+        AnchorPoint = Vector2.new(0.5,0.5),
+        Parent = screenGui
+    })
+    new("UICorner", { Parent = main, CornerRadius = UDim.new(0,10) })
+
+    local header = new("Frame", {
+        Name = "Header",
+        Size = UDim2.new(1,0,0,56),
+        BackgroundTransparency = 1,
+        Parent = main
+    })
+    local title = new("TextLabel", {
+        Name = "Title",
+        Text = "Custom Store",
+        Size = UDim2.new(0.6, -12, 1, 0),
+        Position = UDim2.new(0,12,0,0),
+        BackgroundTransparency = 1,
+        TextColor3 = Color3.fromRGB(240,240,240),
+        Font = Enum.Font.GothamBold,
+        TextSize = 20,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = header
+    })
+    local closeBtn = new("TextButton", {
+        Name = "Close",
+        Text = "X",
+        Size = UDim2.new(0,36,0,28),
+        Position = UDim2.new(1, -48, 0, 14),
+        BackgroundColor3 = Color3.fromRGB(200,60,60),
+        TextColor3 = Color3.fromRGB(255,255,255),
+        Parent = header
+    })
+    new("UICorner", { Parent = closeBtn, CornerRadius = UDim.new(0,6) })
+
+    -- Category bar
+    local catBar = new("Frame", {
+        Name = "CategoryBar",
+        Size = UDim2.new(1, -24, 0, 40),
+        Position = UDim2.new(0,12,0,56),
+        BackgroundTransparency = 1,
+        Parent = main
+    })
+    local catLayout = new("UIListLayout", { Parent = catBar, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,8) })
+
+    -- Scroll area for items
+    local scroll = new("ScrollingFrame", {
+        Name = "Scroll",
+        Size = UDim2.new(1, -24, 1, -120),
+        Position = UDim2.new(0,12,0,110),
+        BackgroundTransparency = 1,
+        CanvasSize = UDim2.new(0,0,0,0),
+        ScrollBarThickness = 8,
+        Parent = main
+    })
+    local grid = new("UIGridLayout", {
+        Parent = scroll,
+        CellSize = UDim2.new(0, 240, 0, 110),
+        CellPadding = UDim2.new(0, 12, 0, 12),
+        FillDirectionMaxCells = 3
+    })
+
+    -- Close behavior
+    closeBtn.MouseButton1Click:Connect(function()
+        screenGui.Enabled = false
+    end)
+
+    return {
+        ScreenGui = screenGui,
+        Main = main,
+        Header = header,
+        CategoryBar = catBar,
+        Scroll = scroll,
+        Grid = grid
+    }
+end
+
+-- Build a category button
+local function buildCategoryButton(container, name, onSelect)
+    local btn = new("TextButton", {
+        Name = "Cat_" .. name,
+        Text = name,
+        Size = UDim2.new(0, 120, 0, 32),
+        BackgroundColor3 = Color3.fromRGB(50,50,50),
+        TextColor3 = Color3.fromRGB(230,230,230),
+        Parent = container
+    })
+    new("UICorner", { Parent = btn, CornerRadius = UDim.new(0,6) })
+    btn.MouseButton1Click:Connect(function()
+        onSelect(name)
+    end)
+    return btn
+end
+
+-- Build an item card
+local function buildItemCard(container, def)
     local card = new("Frame", {
         Name = "Card_" .. def.id,
-        Size = UDim2.new(0, 220, 0, 100),
+        Size = UDim2.new(0, 240, 0, 110),
         BackgroundColor3 = Color3.fromRGB(40,40,40),
         Parent = container
     })
-    new("UICorner", {Parent = card, CornerRadius = UDim.new(0,6)})
+    new("UICorner", { Parent = card, CornerRadius = UDim.new(0,6) })
 
     local icon = new("ImageLabel", {
         Name = "Icon",
@@ -124,12 +166,12 @@ local function buildCard(container, def)
     local name = new("TextLabel", {
         Name = "Name",
         Text = def.name or "Unnamed",
-        Size = UDim2.new(1, -84, 0, 24),
+        Size = UDim2.new(1, -96, 0, 24),
         Position = UDim2.new(0, 80, 0, 12),
         BackgroundTransparency = 1,
         TextColor3 = Color3.fromRGB(230,230,230),
         Font = Enum.Font.GothamBold,
-        TextSize = 16,
+        TextSize = 15,
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = card
     })
@@ -137,7 +179,7 @@ local function buildCard(container, def)
     local desc = new("TextLabel", {
         Name = "Desc",
         Text = def.description or "",
-        Size = UDim2.new(1, -84, 0, 40),
+        Size = UDim2.new(1, -96, 0, 40),
         Position = UDim2.new(0, 80, 0, 34),
         BackgroundTransparency = 1,
         TextColor3 = Color3.fromRGB(200,200,200),
@@ -148,30 +190,31 @@ local function buildCard(container, def)
         Parent = card
     })
 
-    local toggleBtn = new("TextButton", {
-        Name = "Toggle",
-        Text = "",
-        Size = UDim2.new(0, 60, 0, 28),
-        Position = UDim2.new(1, -68, 0, 36),
+    local actionBtn = new("TextButton", {
+        Name = "Action",
+        Text = def.buttonText or "Toggle",
+        Size = UDim2.new(0, 80, 0, 28),
+        Position = UDim2.new(1, -92, 0, 40),
         BackgroundColor3 = Color3.fromRGB(70,70,70),
         TextColor3 = Color3.fromRGB(255,255,255),
         Parent = card
     })
-    new("UICorner", {Parent = toggleBtn, CornerRadius = UDim.new(0,6)})
+    new("UICorner", { Parent = actionBtn, CornerRadius = UDim.new(0,6) })
 
+    -- Toggle visual state if requested
     local state = loadState(def.id, false)
     local function updateVisual(on)
         if on then
-            toggleBtn.BackgroundColor3 = Color3.fromRGB(60,150,80)
-            toggleBtn.Text = "ON"
+            actionBtn.BackgroundColor3 = Color3.fromRGB(60,150,80)
+            actionBtn.Text = def.onText or "ON"
         else
-            toggleBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
-            toggleBtn.Text = "OFF"
+            actionBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+            actionBtn.Text = def.offText or "OFF"
         end
     end
     updateVisual(state)
 
-    toggleBtn.MouseButton1Click:Connect(function()
+    actionBtn.MouseButton1Click:Connect(function()
         state = not state
         saveState(def.id, state)
         updateVisual(state)
@@ -189,45 +232,73 @@ local function buildCard(container, def)
     return card
 end
 
+-- Filter and rebuild visible cards by category
+local function rebuildCards(gui, selectedCategory)
+    -- clear existing cards
+    for _, child in pairs(gui.Scroll:GetChildren()) do
+        if child:IsA("Frame") and child.Name:match("^Card_") then
+            child:Destroy()
+        end
+    end
+
+    local count = 0
+    for _, def in pairs(registered) do
+        if selectedCategory == "All" or def.category == selectedCategory then
+            buildItemCard(gui.Scroll, def)
+            count = count + 1
+        end
+    end
+
+    local grid = gui.Grid
+    local rows = math.ceil(math.max(1, count) / 3)
+    gui.Scroll.CanvasSize = UDim2.new(0,0,0, rows * (grid.CellSize.Y.Offset + grid.CellPadding.Y.Offset))
+end
+
+-- Public API
 function StoreUI.RegisterFeature(def)
     assert(type(def.id) == "string", "id required")
     registered[def.id] = def
-    if guiState and guiState.Scroll then
-        buildCard(guiState.Scroll, def)
-        -- adjust canvas
-        local grid = guiState.Grid
-        if grid then
-            local count = 0
-            for _,c in pairs(guiState.Scroll:GetChildren()) do
-                if c:IsA("Frame") and c.Name:match("^Card_") then count = count + 1 end
-            end
-            local rows = math.ceil(count / 3)
-            guiState.Scroll.CanvasSize = UDim2.new(0,0,0, rows * (grid.CellSize.Y.Offset + grid.CellPadding.Y.Offset))
+    if StoreUI._gui then
+        -- ensure category exists
+        if def.category and not table.find(categories, def.category) then
+            table.insert(categories, def.category)
+            buildCategoryButton(StoreUI._gui.CategoryBar, def.category, function(cat)
+                rebuildCards(StoreUI._gui, cat)
+            end)
+        end
+        rebuildCards(StoreUI._gui, "All")
+    end
+end
+
+function StoreUI.RegisterCategory(name)
+    if not table.find(categories, name) then
+        table.insert(categories, name)
+        if StoreUI._gui then
+            buildCategoryButton(StoreUI._gui.CategoryBar, name, function(cat)
+                rebuildCards(StoreUI._gui, cat)
+            end)
         end
     end
 end
 
 function StoreUI.Open()
-    if not guiState then
-        guiState = createGui()
-        for _, def in pairs(registered) do
-            buildCard(guiState.Scroll, def)
+    if not StoreUI._gui then
+        StoreUI._gui = createGui()
+        -- build default category buttons
+        for _, cat in ipairs(categories) do
+            buildCategoryButton(StoreUI._gui.CategoryBar, cat, function(c)
+                rebuildCards(StoreUI._gui, c)
+            end)
         end
-        local grid = guiState.Grid
-        local count = 0
-        for _,c in pairs(guiState.Scroll:GetChildren()) do
-            if c:IsA("Frame") and c.Name:match("^Card_") then count = count + 1 end
-        end
-        local rows = math.ceil(count / 3)
-        guiState.Scroll.CanvasSize = UDim2.new(0,0,0, rows * (grid.CellSize.Y.Offset + grid.CellPadding.Y.Offset))
+        rebuildCards(StoreUI._gui, "All")
     else
-        guiState.ScreenGui.Enabled = true
+        StoreUI._gui.ScreenGui.Enabled = true
     end
 end
 
 function StoreUI.Close()
-    if guiState then
-        guiState.ScreenGui.Enabled = false
+    if StoreUI._gui then
+        StoreUI._gui.ScreenGui.Enabled = false
     end
 end
 
