@@ -1,58 +1,50 @@
--- StoreUI ModuleScript
-local StoreUI = {}
-StoreUI.__index = StoreUI
-
+-- ReplicatedStorage.Modules.StoreUI
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
 local guiName = "CustomStoreUI_v1"
 
--- Internal storage for registered features
-local features = {}
+local StoreUI = {}
+StoreUI.__index = StoreUI
 
--- Utility to create instances quickly
+local registered = {}
+
 local function new(class, props)
     local obj = Instance.new(class)
     if props then
-        for k,v in pairs(props) do
-            obj[k] = v
-        end
+        for k,v in pairs(props) do obj[k] = v end
     end
     return obj
 end
 
--- Create main ScreenGui and layout
 local function createGui()
     local existing = player:FindFirstChildOfClass("PlayerGui"):FindFirstChild(guiName)
-    if existing then
-        existing:Destroy()
-    end
+    if existing then existing:Destroy() end
 
     local screenGui = new("ScreenGui", {Name = guiName, ResetOnSpawn = false})
     screenGui.Parent = player:FindFirstChildOfClass("PlayerGui")
 
-    local mainFrame = new("Frame", {
-        Name = "MainFrame",
+    local main = new("Frame", {
+        Name = "Main",
         Size = UDim2.new(0, 700, 0, 420),
         Position = UDim2.new(0.5, -350, 0.5, -210),
         BackgroundColor3 = Color3.fromRGB(30,30,30),
         AnchorPoint = Vector2.new(0.5,0.5),
         Parent = screenGui
     })
+    new("UICorner", {Parent = main, CornerRadius = UDim.new(0,8)})
 
-    local uiCorner = new("UICorner", {Parent = mainFrame, CornerRadius = UDim.new(0,8)})
     local title = new("TextLabel", {
         Name = "Title",
-        Text = "Custom Feature Store",
+        Text = "Feature Store",
         Size = UDim2.new(1, -20, 0, 40),
         Position = UDim2.new(0,10,0,10),
         BackgroundTransparency = 1,
         TextColor3 = Color3.fromRGB(230,230,230),
         Font = Enum.Font.GothamBold,
         TextSize = 20,
-        Parent = mainFrame
+        Parent = main
     })
 
     local closeBtn = new("TextButton", {
@@ -62,7 +54,7 @@ local function createGui()
         Position = UDim2.new(1, -46, 0, 8),
         BackgroundColor3 = Color3.fromRGB(200,60,60),
         TextColor3 = Color3.fromRGB(255,255,255),
-        Parent = mainFrame
+        Parent = main
     })
     new("UICorner", {Parent = closeBtn, CornerRadius = UDim.new(0,6)})
 
@@ -73,7 +65,7 @@ local function createGui()
         BackgroundTransparency = 1,
         CanvasSize = UDim2.new(0,0,0,0),
         ScrollBarThickness = 8,
-        Parent = mainFrame
+        Parent = main
     })
     local grid = new("UIGridLayout", {
         Parent = scroll,
@@ -82,24 +74,23 @@ local function createGui()
         FillDirectionMaxCells = 3
     })
 
-    -- Close behavior
     closeBtn.MouseButton1Click:Connect(function()
         screenGui.Enabled = false
     end)
 
     return {
         ScreenGui = screenGui,
-        MainFrame = mainFrame,
+        Main = main,
         Scroll = scroll,
         Grid = grid
     }
 end
 
--- Save and load local state using Player attributes as a simple local store
+local guiState = nil
+
 local function saveState(key, value)
-    local encoded = HttpService:JSONEncode(value)
     pcall(function()
-        player:SetAttribute("StoreUI_" .. key, encoded)
+        player:SetAttribute("StoreUI_" .. key, HttpService:JSONEncode(value))
     end)
 end
 
@@ -112,10 +103,9 @@ local function loadState(key, default)
     return default
 end
 
--- Build an item card UI and return a toggle function
-local function buildItemCard(container, feature)
+local function buildCard(container, def)
     local card = new("Frame", {
-        Name = "Card_" .. feature.id,
+        Name = "Card_" .. def.id,
         Size = UDim2.new(0, 220, 0, 100),
         BackgroundColor3 = Color3.fromRGB(40,40,40),
         Parent = container
@@ -127,13 +117,13 @@ local function buildItemCard(container, feature)
         Size = UDim2.new(0, 64, 0, 64),
         Position = UDim2.new(0, 8, 0, 18),
         BackgroundTransparency = 1,
-        Image = feature.icon or "",
+        Image = def.icon or "",
         Parent = card
     })
 
     local name = new("TextLabel", {
         Name = "Name",
-        Text = feature.name or "Unnamed",
+        Text = def.name or "Unnamed",
         Size = UDim2.new(1, -84, 0, 24),
         Position = UDim2.new(0, 80, 0, 12),
         BackgroundTransparency = 1,
@@ -146,7 +136,7 @@ local function buildItemCard(container, feature)
 
     local desc = new("TextLabel", {
         Name = "Desc",
-        Text = feature.description or "",
+        Text = def.description or "",
         Size = UDim2.new(1, -84, 0, 40),
         Position = UDim2.new(0, 80, 0, 34),
         BackgroundTransparency = 1,
@@ -169,7 +159,7 @@ local function buildItemCard(container, feature)
     })
     new("UICorner", {Parent = toggleBtn, CornerRadius = UDim.new(0,6)})
 
-    local state = loadState(feature.id, false)
+    local state = loadState(def.id, false)
     local function updateVisual(on)
         if on then
             toggleBtn.BackgroundColor3 = Color3.fromRGB(60,150,80)
@@ -183,72 +173,62 @@ local function buildItemCard(container, feature)
 
     toggleBtn.MouseButton1Click:Connect(function()
         state = not state
-        saveState(feature.id, state)
+        saveState(def.id, state)
         updateVisual(state)
-        if state and feature.onEnable then
-            pcall(feature.onEnable)
-        elseif not state and feature.onDisable then
-            pcall(feature.onDisable)
+        if state and type(def.onEnable) == "function" then
+            pcall(def.onEnable)
+        elseif not state and type(def.onDisable) == "function" then
+            pcall(def.onDisable)
         end
     end)
 
-    -- If feature has an initial state callback, call it
-    if state and feature.onEnable then
-        pcall(feature.onEnable)
+    if state and type(def.onEnable) == "function" then
+        pcall(def.onEnable)
     end
 
     return card
 end
 
--- Public API to register a feature
-function StoreUI.RegisterFeature(featureDef)
-    assert(type(featureDef.id) == "string", "feature must have id")
-    features[featureDef.id] = featureDef
-
-    -- If GUI already created, add immediately
-    if StoreUI._gui and StoreUI._gui.Scroll then
-        buildItemCard(StoreUI._gui.Scroll, featureDef)
-        -- update canvas size
-        local canvas = StoreUI._gui.Scroll
-        local grid = canvas:FindFirstChildOfClass("UIGridLayout")
-        if grid then
-            local rows = math.ceil(#StoreUI._gui.Scroll:GetChildren() / 3)
-            canvas.CanvasSize = UDim2.new(0,0,0, rows * (grid.CellSize.Y.Offset + grid.CellPadding.Y.Offset))
-        end
-    end
-end
-
--- Public API to open the store UI
-function StoreUI.Open()
-    if not StoreUI._gui then
-        StoreUI._gui = createGui()
-        -- populate items
-        for _,f in pairs(features) do
-            buildItemCard(StoreUI._gui.Scroll, f)
-        end
-        -- adjust canvas size
-        local grid = StoreUI._gui.Scroll:FindFirstChildOfClass("UIGridLayout")
+function StoreUI.RegisterFeature(def)
+    assert(type(def.id) == "string", "id required")
+    registered[def.id] = def
+    if guiState and guiState.Scroll then
+        buildCard(guiState.Scroll, def)
+        -- adjust canvas
+        local grid = guiState.Grid
         if grid then
             local count = 0
-            for _,c in pairs(StoreUI._gui.Scroll:GetChildren()) do
+            for _,c in pairs(guiState.Scroll:GetChildren()) do
                 if c:IsA("Frame") and c.Name:match("^Card_") then count = count + 1 end
             end
             local rows = math.ceil(count / 3)
-            StoreUI._gui.Scroll.CanvasSize = UDim2.new(0,0,0, rows * (grid.CellSize.Y.Offset + grid.CellPadding.Y.Offset))
+            guiState.Scroll.CanvasSize = UDim2.new(0,0,0, rows * (grid.CellSize.Y.Offset + grid.CellPadding.Y.Offset))
         end
+    end
+end
+
+function StoreUI.Open()
+    if not guiState then
+        guiState = createGui()
+        for _, def in pairs(registered) do
+            buildCard(guiState.Scroll, def)
+        end
+        local grid = guiState.Grid
+        local count = 0
+        for _,c in pairs(guiState.Scroll:GetChildren()) do
+            if c:IsA("Frame") and c.Name:match("^Card_") then count = count + 1 end
+        end
+        local rows = math.ceil(count / 3)
+        guiState.Scroll.CanvasSize = UDim2.new(0,0,0, rows * (grid.CellSize.Y.Offset + grid.CellPadding.Y.Offset))
     else
-        StoreUI._gui.ScreenGui.Enabled = true
+        guiState.ScreenGui.Enabled = true
     end
 end
 
--- Public API to close the UI
 function StoreUI.Close()
-    if StoreUI._gui then
-        StoreUI._gui.ScreenGui.Enabled = false
+    if guiState then
+        guiState.ScreenGui.Enabled = false
     end
 end
-
--- Auto open for debugging; remove in production
--- StoreUI.Open()
 
 return StoreUI
